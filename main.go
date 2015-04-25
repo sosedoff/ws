@@ -6,78 +6,64 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-var opts struct {
-	raw bool
-}
-
-func init() {
-	flag.BoolVar(&opts.raw, "raw", false, "Print raw data")
-	flag.Parse()
-}
-
-func main() {
-	dialer := websocket.Dialer{
+var (
+	dialer = websocket.Dialer{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 	}
+)
+
+func userInput(ws *websocket.Conn) {
+	bio := bufio.NewReader(os.Stdin)
+	line, _, err := bio.ReadLine()
+
+	if err != nil && err != io.EOF {
+		fmt.Println("Read error:", err)
+		return
+	}
+
+	ws.WriteMessage(websocket.TextMessage, []byte(line))
+}
+
+func main() {
+	flag.Parse()
 
 	if flag.Arg(0) == "" {
 		fmt.Println("Usage: ws URL")
 		os.Exit(1)
 	}
 
+	fmt.Fprintln(os.Stderr, "Connecting...")
 	ws, _, err := dialer.Dial(flag.Arg(0), nil)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println(os.Stderr, "Error:", err)
 		os.Exit(2)
 	}
 
-	bio := bufio.NewReader(os.Stdin)
-
-	go func() {
-		for {
-			line, _, err := bio.ReadLine()
-			if err != nil {
-				fmt.Println("Error:", err)
-				continue
-			}
-
-			ws.WriteMessage(websocket.TextMessage, []byte(line))
-		}
-	}()
+	fmt.Fprintln(os.Stderr, "Connected. Listening for messages...")
+	userInput(ws)
 
 	for {
-		mtype, mdata, err := ws.ReadMessage()
-		ts := time.Now()
-
+		_, mdata, err := ws.ReadMessage()
 		if err != nil {
-			fmt.Println("Error:", err)
-			continue
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			break
 		}
 
 		var prettyJSON bytes.Buffer
 		err = json.Indent(&prettyJSON, mdata, "", "  ")
 
-		if opts.raw {
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "Error:", err)
-				continue
-			}
-			fmt.Printf("%s\n", prettyJSON.Bytes())
-		} else {
-			if err == nil {
-				fmt.Printf("%s\n%s\n", ts.Format("20060102-15:04:05.000"), prettyJSON.Bytes())
-			} else {
-				fmt.Printf("%s\n%s\n", ts.Format("20060102-15:04:05.000"), mtype, mdata)
-			}
-
-			fmt.Println("-----------------------------------------------------------")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			break
 		}
+
+		fmt.Printf("%s\n", prettyJSON.Bytes())
 	}
 }
