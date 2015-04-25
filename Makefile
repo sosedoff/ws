@@ -1,5 +1,8 @@
+build: clean
+	go build
+
 clean:
 	rm -f ./ws
 
-build: clean
-	go build
+test:
+	printf '{"hello":"world"}' | ./ws ws://echo.websocket.org
